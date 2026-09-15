@@ -1,26 +1,39 @@
 import type { Metadata, Viewport } from "next";
-import { Manrope, Barlow_Condensed, IBM_Plex_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import { site } from "@/lib/site";
 
-const body = Manrope({
-  subsets: ["latin"],
+const body = localFont({
+  src: "../public/fonts/manrope-var.woff2",
   variable: "--font-body",
   display: "swap",
+  weight: "100 800",
+  fallback: ["system-ui", "sans-serif"],
 });
-const display = Barlow_Condensed({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+
+const display = localFont({
+  src: [
+    { path: "../public/fonts/barlow-400.woff2", weight: "400" },
+    { path: "../public/fonts/barlow-500.woff2", weight: "500" },
+    { path: "../public/fonts/barlow-600.woff2", weight: "600" },
+    { path: "../public/fonts/barlow-700.woff2", weight: "700" },
+  ],
   variable: "--font-display",
   display: "swap",
+  fallback: ["var(--font-body)", "sans-serif"],
 });
-const mono = IBM_Plex_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
+
+const mono = localFont({
+  src: [
+    { path: "../public/fonts/ibm-400.woff2", weight: "400" },
+    { path: "../public/fonts/ibm-500.woff2", weight: "500" },
+    { path: "../public/fonts/ibm-600.woff2", weight: "600" },
+  ],
   variable: "--font-mono",
   display: "swap",
+  fallback: ["ui-monospace", "monospace"],
 });
 
 export const metadata: Metadata = {
