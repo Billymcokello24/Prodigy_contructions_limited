@@ -1,5 +1,15 @@
 import fs from "node:fs";
 import path from "node:path";
+import {
+  dbAddUpload,
+  dbClearCollection,
+  dbGetCollection,
+  dbHasAny,
+  dbListKeys,
+  dbListUploads,
+  dbMigrateLegacy,
+  dbSetCollection,
+} from "@/lib/db";
 import { projects } from "@/lib/projects";
 import { services } from "@/lib/services";
 import { industries, industryCategories } from "@/lib/data-industries";
@@ -36,44 +46,56 @@ export const DEFAULT_COLLECTIONS = {
 
 export type CollectionKey = keyof typeof DEFAULT_COLLECTIONS;
 
-const CONTENT_DIR = path.join(process.cwd(), "content");
+/** Legacy JSON override directory (migrated into the DB on first run). */
+const LEGACY_DIR = path.join(process.cwd(), "content");
 
-function fileFor(key: string): string {
-  return path.join(CONTENT_DIR, `${key}.json`);
+function legacyFileFor(key: string): string {
+  return path.join(LEGACY_DIR, `${key}.json`);
 }
 
-/** Returns the live content for a collection (JSON override, else built-in default). */
-export function getCollection<T = unknown>(key: CollectionKey): T {
-  const file = fileFor(key);
-  if (fs.existsSync(file)) {
-    try {
-      return JSON.parse(fs.readFileSync(file, "utf-8")) as T;
-    } catch {
-      // Fall through to default if file is corrupt.
+let seeded = false;
+
+/** Once per process: migrate legacy JSON overrides into the DB if it's empty. */
+function ensureSeeded(): void {
+  if (seeded) return;
+  if (!dbHasAny()) {
+    for (const key of Object.keys(DEFAULT_COLLECTIONS)) {
+      const k = key as CollectionKey;
+      const migrated = dbMigrateLegacy(k, legacyFileFor(k));
+      if (!migrated) dbSetCollection(k, DEFAULT_COLLECTIONS[k]);
     }
   }
+  seeded = true;
+}
+
+/**
+ * Returns the live content for a collection.
+ * Reads from the integrated SQLite DB (seeded/migrated on first access).
+ */
+export function getCollection<T = unknown>(key: CollectionKey): T {
+  ensureSeeded();
+  const stored = dbGetCollection(key);
+  if (stored !== null) return stored as T;
   return (DEFAULT_COLLECTIONS[key] as unknown) as T;
 }
 
-/** Writes an override for a collection. Returns true on success. */
+/** Writes a collection to the integrated DB. */
 export async function saveCollection(key: string, data: unknown): Promise<{ ok: boolean; error?: string }> {
   if (!(key in DEFAULT_COLLECTIONS)) {
     return { ok: false, error: `Unknown collection: ${key}` };
   }
   try {
-    if (!fs.existsSync(CONTENT_DIR)) fs.mkdirSync(CONTENT_DIR, { recursive: true });
-    fs.writeFileSync(fileFor(key), JSON.stringify(data, null, 2), "utf-8");
+    dbSetCollection(key, data);
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Write failed" };
   }
 }
 
-/** Removes an override so the built-in defaults are used again. */
+/** Removes a collection override so the built-in defaults are used again. */
 export function clearCollection(key: CollectionKey): boolean {
   try {
-    const file = fileFor(key);
-    if (fs.existsSync(file)) fs.unlinkSync(file);
+    dbClearCollection(key);
     return true;
   } catch {
     return false;
@@ -99,43 +121,30 @@ export function listCollections(): { key: CollectionKey; label: string; count: n
     documents: "Downloads",
     faqs: "FAQs",
   };
-  const counts: Record<CollectionKey, number> = {
-    site: 1,
-    home: 1,
-    about: 1,
-    services: services.length,
-    projects: projects.length,
-    industries: industries.length,
-    industryCategories: industryCategories.length,
-    insights: insights.length,
-    news: newsitems.length,
-    team: teammembers.length,
-    testimonials: testimonials.length,
-    equipment: equipmentcategorys.length,
-    vacancies: vacancys.length,
-    documents: documentitems.length,
-    faqs: faqs.length,
-  };
-  return (Object.keys(labels) as CollectionKey[]).map((key) => ({
-    key,
-    label: labels[key],
-    count: counts[key],
-  }));
+  ensureSeeded();
+  const live = dbListKeys();
+  return (Object.keys(labels) as CollectionKey[]).map((key) => {
+    let count: number;
+    if (live.includes(key)) {
+      const stored = dbGetCollection(key);
+      count = Array.isArray(stored) ? stored.length : 1;
+    } else {
+      count = Array.isArray(DEFAULT_COLLECTIONS[key as CollectionKey])
+        ? (DEFAULT_COLLECTIONS[key as CollectionKey] as unknown[]).length
+        : 1;
+    }
+    return { key, label: labels[key], count };
+  });
 }
 
-/** Deletion of a specific item in a collection supported by array overrides. */
+/** Deletion of a specific item in a collection (array collections only). */
 export function removeItem(key: keyof typeof DEFAULT_COLLECTIONS, slug: string): boolean {
-  const file = fileFor(key);
-  if (!fs.existsSync(file)) return false;
-  try {
-    const current = JSON.parse(fs.readFileSync(file, "utf-8")) as unknown[];
-    if (!Array.isArray(current)) return false;
-    const next = current.filter(
-      (item) => typeof item === "object" && item !== null && (item as { slug?: string })?.slug !== slug,
-    );
-    fs.writeFileSync(file, JSON.stringify(next, null, 2), "utf-8");
-    return true;
-  } catch {
-    return false;
-  }
+  const current = dbGetCollection(key);
+  if (!Array.isArray(current)) return false;
+  const next = current.filter(
+    (item) => typeof item === "object" && item !== null && (item as { slug?: string })?.slug !== slug,
+  );
+  if (next.length === current.length) return false;
+  dbSetCollection(key, next);
+  return true;
 }

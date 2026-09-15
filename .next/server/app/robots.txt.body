@@ -1,6 +1,0 @@
-User-Agent: *
-Allow: /
-Disallow: /portal
-Disallow: /api/
-
-Sitemap: https://prodigyconstruction.co.ke/sitemap.xml

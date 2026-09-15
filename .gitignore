@@ -1,19 +1,24 @@
-node_modules/
-.next/
-out/
-content/
-.env
-.env.local
-*.log
-.DS_Store
-node_modules
+# Dependencies
 node_modules/
 
+# Next.js build output
 .next/
 out/
 dist/
 build/
+
+# CMS runtime data (SQLite DB + legacy JSON overrides)
+content/
+data/
+
+# Uploaded media
+public/uploads/*
+!public/uploads/.gitkeep
+
+# Environment
 .env
 .env.local
+
+# Logs and OS files
 *.log
 .DS_Store
